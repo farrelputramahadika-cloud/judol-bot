@@ -1,0 +1,1 @@
+worker: python judol_bot.py
