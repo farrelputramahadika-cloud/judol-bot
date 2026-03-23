@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-# JUDOL BOT - REGISTRATION WITH ADMIN APPROVAL
+# JUDOL BOT - WITH ADMIN CONFIRMATION
 # TOKEN: 8743058682:AAErZ9IteuI9ZMIaPRfhnrM3x1-4uftQR3I
 # ADMIN ID: 6481058235
+# DANA: 085969081186 (YULIANA)
+# GOPAY: 085969081186 (YULIANA)
 
 import os
 import json
@@ -14,29 +16,20 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 
 # ========== KONFIGURASI ==========
 TOKEN = "8743058682:AAErZ9IteuI9ZMIaPRfhnrM3x1-4uftQR3I"
-ADMIN_ID = 6481058235  # ID TELEGRAM LO
+ADMIN_ID = 6481058235
 
-# File data
-USERS_FILE = "users.json"
-TRANSACTIONS_FILE = "transactions.json"
-PENDING_FILE = "pending.json"
-REGISTER_FILE = "register_requests.json"
+# ========== FILE DATA ==========
+USERS_FILE = "/tmp/users.json"
+TRANSACTIONS_FILE = "/tmp/transactions.json"
+PENDING_FILE = "/tmp/pending.json"
 
 users = {}
 transactions = []
+pending_registrations = {}
 pending_deposits = {}
-register_requests = {}
 
-# ========== FUNGSI HASH ==========
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_password(password, hashed):
-    return hash_password(password) == hashed
-
-# ========== LOAD DATA ==========
 def load_data():
-    global users, transactions, pending_deposits, register_requests
+    global users, transactions, pending_registrations, pending_deposits
     try:
         with open(USERS_FILE, 'r') as f:
             users = json.load(f)
@@ -49,14 +42,12 @@ def load_data():
         transactions = []
     try:
         with open(PENDING_FILE, 'r') as f:
-            pending_deposits = json.load(f)
+            data = json.load(f)
+            pending_registrations = data.get('registrations', {})
+            pending_deposits = data.get('deposits', {})
     except:
+        pending_registrations = {}
         pending_deposits = {}
-    try:
-        with open(REGISTER_FILE, 'r') as f:
-            register_requests = json.load(f)
-    except:
-        register_requests = {}
 
 def save_data():
     with open(USERS_FILE, 'w') as f:
@@ -64,68 +55,41 @@ def save_data():
     with open(TRANSACTIONS_FILE, 'w') as f:
         json.dump(transactions, f)
     with open(PENDING_FILE, 'w') as f:
-        json.dump(pending_deposits, f)
-    with open(REGISTER_FILE, 'w') as f:
-        json.dump(register_requests, f)
+        json.dump({
+            'registrations': pending_registrations,
+            'deposits': pending_deposits
+        }, f)
 
 load_data()
 
-# ========== FUNGSI USER ==========
+# ========== PAYMENT & GAMES ==========
+PAYMENT = {
+    'dana': {'name': 'DANA', 'number': '085969081186', 'owner': 'YULIANA'},
+    'gopay': {'name': 'GOPAY', 'number': '085969081186', 'owner': 'YULIANA'}
+}
+
+GAMES = {
+    'mahjong': {'name': 'MAHJONG WAYS', 'emoji': '🎰', 'min_bet': 1000, 'max_bet': 100000},
+    'starlight': {'name': 'STARLIGHT PRINCESS', 'emoji': '✨', 'min_bet': 1000, 'max_bet': 100000},
+    'gates': {'name': 'GATES OF OLYMPUS', 'emoji': '🚪', 'min_bet': 1000, 'max_bet': 100000},
+    'sweet': {'name': 'SWEET BONANZA', 'emoji': '🍬', 'min_bet': 1000, 'max_bet': 100000}
+}
+
 def generate_referral_code():
     return ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=6))
 
 def generate_trx_id():
     return f"TRX{datetime.now().strftime('%Y%m%d%H%M%S')}{random.randint(1000,9999)}"
 
-def create_user_approved(telegram_id, username, password, referrer_code=None):
-    """Buat user setelah admin approve"""
-    uid = str(telegram_id)
-    
-    users[uid] = {
-        'id': uid,
-        'telegram_id': telegram_id,
-        'username': username,
-        'password': hash_password(password),
-        'balance': 0,
-        'total_deposit': 0,
-        'total_withdraw': 0,
-        'total_spin': 0,
-        'total_win': 0,
-        'referral_code': generate_referral_code(),
-        'referred_by': None,
-        'referral_count': 0,
-        'referral_bonus': 0,
-        'joined': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'last_bonus': None,
-        'is_approved': True
-    }
-    
-    # Handle referral
-    if referrer_code:
-        for uid_ref, data in users.items():
-            if data.get('referral_code') == referrer_code:
-                users[uid]['referred_by'] = uid_ref
-                users[uid_ref]['referral_count'] += 1
-                users[uid_ref]['referral_bonus'] += 10000
-                users[uid_ref]['balance'] += 10000
-                break
-    
-    save_data()
-    return True
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
-def is_user_approved(telegram_id):
+def get_user(telegram_id):
     uid = str(telegram_id)
     if uid in users:
-        return users[uid].get('is_approved', False)
-    return False
-
-def get_user_data(telegram_id):
-    uid = str(telegram_id)
-    if uid in users and users[uid].get('is_approved'):
         return users[uid]
     return None
 
-# ========== FUNGSI DEPOSIT/WITHDRAW ==========
 def add_balance(user_id, amount, note, is_deposit=False):
     uid = str(user_id)
     if uid not in users:
@@ -180,7 +144,6 @@ def add_win(user_id, amount, game):
         users[uid]['total_win'] += amount
         save_data()
 
-# ========== GAME SPIN ==========
 def spin_slot(bet, game):
     rand = random.random()
     if rand < 0.4:
@@ -200,22 +163,8 @@ def spin_slot(bet, game):
     
     return {'win': win, 'type': result_type, 'bet': bet, 'game': game}
 
-# ========== PAYMENT DATA ==========
-PAYMENT = {
-    'dana': {'name': 'DANA', 'number': '085969081186', 'owner': 'YULIANA'},
-    'gopay': {'name': 'GOPAY', 'number': '085969081186', 'owner': 'YULIANA'}
-}
-
-GAMES = {
-    'mahjong': {'name': 'MAHJONG WAYS', 'emoji': '🎰', 'min_bet': 1000, 'max_bet': 100000},
-    'starlight': {'name': 'STARLIGHT PRINCESS', 'emoji': '✨', 'min_bet': 1000, 'max_bet': 100000},
-    'gates': {'name': 'GATES OF OLYMPUS', 'emoji': '🚪', 'min_bet': 1000, 'max_bet': 100000},
-    'sweet': {'name': 'SWEET BONANZA', 'emoji': '🍬', 'min_bet': 1000, 'max_bet': 100000}
-}
-
-# ========== NOTIFIKASI ADMIN ==========
+# ========== KIRIM NOTIFIKASI KE ADMIN ==========
 async def notify_admin_register(context, telegram_id, username, password, referrer):
-    """Kirim notifikasi registrasi ke admin"""
     keyboard = [
         [InlineKeyboardButton("✅ APPROVE", callback_data=f"reg_approve_{telegram_id}")],
         [InlineKeyboardButton("❌ REJECT", callback_data=f"reg_reject_{telegram_id}")]
@@ -236,11 +185,10 @@ async def notify_admin_register(context, telegram_id, username, password, referr
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def notify_admin_deposit(context, user_id, username, amount, method, trx_id):
-    """Kirim notifikasi deposit ke admin"""
+async def notify_admin_deposit(context, user_id, username, amount, method, trx_id, proof=None):
     keyboard = [
-        [InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{trx_id}")],
-        [InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{trx_id}")]
+        [InlineKeyboardButton("✅ APPROVE", callback_data=f"deposit_approve_{trx_id}")],
+        [InlineKeyboardButton("❌ REJECT", callback_data=f"deposit_reject_{trx_id}")]
     ]
     
     message = f"💰 *DEPOSIT PENDING*\n\n"
@@ -249,6 +197,8 @@ async def notify_admin_deposit(context, user_id, username, amount, method, trx_i
     message += f"💰 Nominal: Rp {amount:,.0f}\n"
     message += f"💳 Metode: {method.upper()}\n"
     message += f"🆔 Trx ID: {trx_id}\n"
+    if proof:
+        message += f"📝 Bukti: {proof}\n"
     message += f"🕐 Waktu: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     message += f"Klik APPROVE untuk menambah saldo."
     
@@ -262,11 +212,10 @@ async def notify_admin_deposit(context, user_id, username, amount, method, trx_i
 # ========== TELEGRAM HANDLERS ==========
 async def start(update: Update, context):
     user = update.effective_user
-    telegram_id = user.id
+    user_data = get_user(user.id)
     
-    # Cek apakah user sudah approved
-    if is_user_approved(telegram_id):
-        user_data = get_user_data(telegram_id)
+    if user_data:
+        # Sudah terdaftar dan approved
         keyboard = [
             [InlineKeyboardButton("🎰 PILIH GAME", callback_data='games')],
             [InlineKeyboardButton("💰 DEPOSIT", callback_data='deposit')],
@@ -278,18 +227,17 @@ async def start(update: Update, context):
         ]
         
         await update.message.reply_text(
-            f"🎰 *JUDOL BOT - SLOT GAME* 🎰\n\n"
+            f"🎰 *JUDOL BOT* 🎰\n\n"
             f"👋 Welcome {user_data['username']}!\n\n"
             f"💰 *Saldo:* Rp {user_data['balance']:,.0f}\n"
             f"🎲 *Total Spin:* {user_data['total_spin']}\n"
-            f"🏆 *Total Win:* Rp {user_data['total_win']:,.0f}\n"
-            f"👥 *Referral:* {user_data['referral_count']} orang\n\n"
+            f"🏆 *Total Win:* Rp {user_data['total_win']:,.0f}\n\n"
             f"📌 *Pilih menu:*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
     else:
-        # Belum registrasi, tampilkan menu registrasi
+        # Belum terdaftar
         keyboard = [
             [InlineKeyboardButton("📝 REGISTER", callback_data='register')],
             [InlineKeyboardButton("🔐 LOGIN", callback_data='login')]
@@ -300,25 +248,25 @@ async def start(update: Update, context):
             f"👋 Halo {user.first_name}!\n\n"
             f"⚠️ *Anda belum memiliki akun!*\n\n"
             f"Silakan REGISTER terlebih dahulu.\n"
-            f"Atau LOGIN jika sudah punya akun.\n\n"
+            f"Pendaftaran akan dikonfirmasi oleh admin.\n\n"
             f"📌 *Pilih menu:*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
 
-# ========== REGISTER ==========
+# ========== REGISTER (DENGAN APPROVAL ADMIN) ==========
 async def register_menu(update: Update, context):
     query = update.callback_query
     await query.answer()
     
     await query.edit_message_text(
         f"📝 *REGISTRASI AKUN*\n\n"
-        f"Silakan masukkan data berikut:\n\n"
-        f"1️⃣ *Username* (tanpa spasi)\n"
-        f"2️⃣ *Password* (minimal 4 karakter)\n"
-        f"3️⃣ *Kode Referral* (opsional)\n\n"
-        f"Format: `username|password|kode_referral`\n\n"
-        f"Contoh: `jokosusanto|12345|ABC123`\n\n"
+        f"Format: `username|password`\n\n"
+        f"Contoh: `jokosusanto|12345`\n\n"
+        f"📌 *Catatan:*\n"
+        f"- Username minimal 3 karakter\n"
+        f"- Password minimal 4 karakter\n"
+        f"- Pendaftaran akan dikonfirmasi admin\n\n"
         f"Ketik format di chat:",
         parse_mode='Markdown'
     )
@@ -329,15 +277,14 @@ async def handle_register(update: Update, context):
         text = update.message.text.strip()
         parts = text.split('|')
         
-        if len(parts) < 2:
-            await update.message.reply_text("❌ Format salah! Gunakan: username|password|kode_referral")
+        if len(parts) != 2:
+            await update.message.reply_text("❌ Format salah! Gunakan: username|password")
             return
         
         username = parts[0].strip()
         password = parts[1].strip()
-        referrer = parts[2].strip() if len(parts) > 2 else None
+        telegram_id = update.effective_user.id
         
-        # Validasi
         if len(username) < 3:
             await update.message.reply_text("❌ Username minimal 3 karakter!")
             return
@@ -352,20 +299,22 @@ async def handle_register(update: Update, context):
                 await update.message.reply_text("❌ Username sudah digunakan!")
                 return
         
-        telegram_id = update.effective_user.id
+        # Cek apakah sudah dalam pending
+        if str(telegram_id) in pending_registrations:
+            await update.message.reply_text("⚠️ Anda sudah mendaftar! Tunggu konfirmasi admin.")
+            return
         
-        # Simpan request registrasi
-        register_requests[str(telegram_id)] = {
+        # Simpan pending registration
+        pending_registrations[str(telegram_id)] = {
             'telegram_id': telegram_id,
             'username': username,
             'password': password,
-            'referrer': referrer,
             'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
         save_data()
         
         # Kirim notifikasi ke admin
-        await notify_admin_register(context, telegram_id, username, password, referrer)
+        await notify_admin_register(context, telegram_id, username, password, None)
         
         await update.message.reply_text(
             f"✅ *REGISTRASI DIAJUKAN!*\n\n"
@@ -373,7 +322,8 @@ async def handle_register(update: Update, context):
             f"🔑 Password: {password}\n\n"
             f"📌 *TUNGGU KONFIRMASI DARI ADMIN*\n"
             f"Admin akan mengaktifkan akun Anda.\n\n"
-            f"⏱️ Estimasi: 1-5 menit",
+            f"⏱️ Estimasi: 1-5 menit\n\n"
+            f"Ketik /start setelah di-approve!",
             parse_mode='Markdown'
         )
         
@@ -389,7 +339,6 @@ async def login_menu(update: Update, context):
     
     await query.edit_message_text(
         f"🔐 *LOGIN*\n\n"
-        f"Masukkan username dan password:\n\n"
         f"Format: `username|password`\n\n"
         f"Contoh: `jokosusanto|12345`\n\n"
         f"Ketik format di chat:",
@@ -413,18 +362,13 @@ async def handle_login(update: Update, context):
         # Cari user
         found = False
         for uid, data in users.items():
-            if data.get('username') == username and verify_password(password, data.get('password', '')):
-                if data.get('is_approved'):
-                    # Update telegram_id
-                    users[telegram_id] = data
-                    users[telegram_id]['telegram_id'] = telegram_id
-                    del users[uid]
-                    save_data()
-                    found = True
-                    break
-                else:
-                    await update.message.reply_text("❌ Akun belum di-approve admin!")
-                    return
+            if data.get('username') == username and data.get('password') == hash_password(password):
+                # Update telegram_id
+                users[str(telegram_id)] = data
+                del users[uid]
+                save_data()
+                found = True
+                break
         
         if found:
             await update.message.reply_text(
@@ -442,28 +386,134 @@ async def handle_login(update: Update, context):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
-# ========== ADMIN APPROVE/REJECT REGISTRATION ==========
+# ========== DEPOSIT (DENGAN APPROVAL ADMIN) ==========
+async def deposit_menu(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    
+    user_data = get_user(update.effective_user.id)
+    if not user_data:
+        await query.edit_message_text("❌ Anda belum login! Ketik /start")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("💙 DANA", callback_data='deposit_dana')],
+        [InlineKeyboardButton("💚 GOPAY", callback_data='deposit_gopay')],
+        [InlineKeyboardButton("🔙 BACK", callback_data='back_main')]
+    ]
+    
+    await query.edit_message_text(
+        f"💰 *DEPOSIT*\n\n"
+        f"Pilih metode deposit:\n\n"
+        f"💙 *DANA* - {PAYMENT['dana']['number']}\n"
+        f"💚 *GOPAY* - {PAYMENT['gopay']['number']}\n\n"
+        f"📌 *Minimal Deposit:* Rp 10,000\n"
+        f"🎁 *Bonus Deposit:* 5% (min Rp 50,000) | 10% (min Rp 100,000)\n\n"
+        f"⚠️ *SETELAH TRANSFER, KETIK NOMINAL DI CHAT*\n"
+        f"⚠️ *Saldo akan masuk setelah admin APPROVE!*\n\n"
+        f"Ketik nominal:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def deposit_method(update: Update, context):
+    query = update.callback_query
+    method = query.data.replace('deposit_', '')
+    await query.answer()
+    
+    await query.edit_message_text(
+        f"💳 *DEPOSIT {method.upper()}*\n\n"
+        f"📱 *Nomor:* `{PAYMENT[method]['number']}`\n"
+        f"👤 *Nama:* {PAYMENT[method]['owner']}\n\n"
+        f"💰 *Masukkan nominal deposit:*\n"
+        f"Contoh: *50000*\n\n"
+        f"📌 *CARA DEPOSIT:*\n"
+        f"1. Transfer ke nomor di atas\n"
+        f"2. Screenshot bukti transfer\n"
+        f"3. Ketik nominal di chat\n"
+        f"4. *TUNGGU KONFIRMASI DARI ADMIN*\n\n"
+        f"Ketik nominal:",
+        parse_mode='Markdown'
+    )
+    context.user_data['deposit_method'] = method
+    context.user_data['waiting_deposit'] = True
+
+async def handle_deposit(update: Update, context):
+    try:
+        amount = int(update.message.text.strip())
+        if amount < 10000:
+            await update.message.reply_text("⚠️ Minimal deposit Rp 10,000!")
+            return
+        
+        method = context.user_data.get('deposit_method')
+        telegram_id = update.effective_user.id
+        user_data = get_user(telegram_id)
+        
+        if not user_data:
+            await update.message.reply_text("❌ Anda belum login! Ketik /start")
+            return
+        
+        trx_id = generate_trx_id()
+        
+        # Simpan pending deposit
+        pending_deposits[trx_id] = {
+            'user_id': telegram_id,
+            'username': user_data['username'],
+            'amount': amount,
+            'method': method,
+            'status': 'pending',
+            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        save_data()
+        
+        # Kirim notifikasi ke admin
+        await notify_admin_deposit(context, telegram_id, user_data['username'], amount, method, trx_id)
+        
+        await update.message.reply_text(
+            f"✅ *DEPOSIT DIAJUKAN!*\n\n"
+            f"💰 Nominal: Rp {amount:,.0f}\n"
+            f"💳 Metode: {method.upper()}\n"
+            f"🆔 ID: `{trx_id}`\n\n"
+            f"📌 *TUNGGU KONFIRMASI DARI ADMIN*\n"
+            f"Saldo akan otomatis masuk setelah admin approve.\n\n"
+            f"⏱️ Estimasi: 1-5 menit",
+            parse_mode='Markdown'
+        )
+        
+        context.user_data['waiting_deposit'] = False
+        
+    except ValueError:
+        await update.message.reply_text("❌ Masukkan nominal yang benar! Contoh: 50000")
+
+# ========== ADMIN APPROVE REGISTRATION ==========
 async def admin_approve_register(update: Update, context):
     query = update.callback_query
     data = query.data
     telegram_id = data.replace('reg_approve_', '')
     
-    if telegram_id not in register_requests:
+    if telegram_id not in pending_registrations:
         await query.answer("Request tidak ditemukan!", show_alert=True)
         return
     
-    req = register_requests[telegram_id]
+    req = pending_registrations[telegram_id]
     
     # Buat user
-    create_user_approved(
-        int(telegram_id),
-        req['username'],
-        req['password'],
-        req.get('referrer')
-    )
+    users[telegram_id] = {
+        'telegram_id': int(telegram_id),
+        'username': req['username'],
+        'password': hash_password(req['password']),
+        'balance': 0,
+        'total_deposit': 0,
+        'total_withdraw': 0,
+        'total_spin': 0,
+        'total_win': 0,
+        'referral_code': generate_referral_code(),
+        'joined': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'last_bonus': None
+    }
     
-    # Hapus request
-    del register_requests[telegram_id]
+    # Hapus pending
+    del pending_registrations[telegram_id]
     save_data()
     
     await query.edit_message_text(
@@ -493,14 +543,13 @@ async def admin_reject_register(update: Update, context):
     data = query.data
     telegram_id = data.replace('reg_reject_', '')
     
-    if telegram_id not in register_requests:
+    if telegram_id not in pending_registrations:
         await query.answer("Request tidak ditemukan!", show_alert=True)
         return
     
-    req = register_requests[telegram_id]
+    req = pending_registrations[telegram_id]
     
-    # Hapus request
-    del register_requests[telegram_id]
+    del pending_registrations[telegram_id]
     save_data()
     
     await query.edit_message_text(
@@ -517,110 +566,17 @@ async def admin_reject_register(update: Update, context):
             chat_id=int(telegram_id),
             text=f"❌ *REGISTRASI DITOLAK!*\n\n"
                  f"👤 Username: {req['username']}\n\n"
-                 f"⚠️ Pendaftaran Anda ditolak oleh admin.\n"
-                 f"Silakan hubungi admin untuk info lebih lanjut.",
+                 f"⚠️ Pendaftaran Anda ditolak oleh admin.",
             parse_mode='Markdown'
         )
     except:
         pass
 
-# ========== DEPOSIT (SAMA KAYAK SEBELUMNYA) ==========
-async def deposit_menu(update: Update, context):
-    query = update.callback_query
-    await query.answer()
-    
-    keyboard = [
-        [InlineKeyboardButton("💙 DANA", callback_data='deposit_dana')],
-        [InlineKeyboardButton("💚 GOPAY", callback_data='deposit_gopay')],
-        [InlineKeyboardButton("🔙 BACK", callback_data='back_main')]
-    ]
-    
-    await query.edit_message_text(
-        f"💰 *DEPOSIT*\n\n"
-        f"Pilih metode deposit:\n\n"
-        f"💙 *DANA* - {PAYMENT['dana']['number']} a.n {PAYMENT['dana']['owner']}\n"
-        f"💚 *GOPAY* - {PAYMENT['gopay']['number']} a.n {PAYMENT['gopay']['owner']}\n\n"
-        f"📌 *Minimal Deposit:* Rp 10,000\n"
-        f"🎁 *Bonus Deposit:* 5% (min Rp 50,000) | 10% (min Rp 100,000)\n\n"
-        f"⚠️ *SETELAH TRANSFER, KETIK NOMINAL DI CHAT*",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-async def deposit_method(update: Update, context):
-    query = update.callback_query
-    method = query.data.replace('deposit_', '')
-    await query.answer()
-    
-    payment = PAYMENT[method]
-    
-    await query.edit_message_text(
-        f"💳 *DEPOSIT {payment['name'].upper()}*\n\n"
-        f"📱 *Nomor:* `{payment['number']}`\n"
-        f"👤 *Nama:* {payment['owner']}\n\n"
-        f"💰 *Masukkan nominal deposit:*\n"
-        f"Contoh: *50000*\n\n"
-        f"📌 *CARA DEPOSIT:*\n"
-        f"1. Transfer ke nomor di atas\n"
-        f"2. Ketik nominal di chat\n"
-        f"3. *TUNGGU KONFIRMASI DARI ADMIN*\n\n"
-        f"⚠️ Saldo akan masuk setelah admin APPROVE!",
-        parse_mode='Markdown'
-    )
-    context.user_data['deposit_method'] = method
-    context.user_data['waiting_deposit'] = True
-
-async def handle_deposit(update: Update, context):
-    try:
-        amount = int(update.message.text.strip())
-        if amount < 10000:
-            await update.message.reply_text("⚠️ Minimal deposit Rp 10,000!")
-            return
-        
-        method = context.user_data.get('deposit_method')
-        telegram_id = update.effective_user.id
-        user_data = get_user_data(telegram_id)
-        
-        if not user_data:
-            await update.message.reply_text("❌ Anda belum login! Ketik /start")
-            return
-        
-        trx_id = generate_trx_id()
-        
-        # Simpan pending deposit
-        pending_deposits[trx_id] = {
-            'user_id': telegram_id,
-            'username': user_data['username'],
-            'amount': amount,
-            'method': method,
-            'status': 'pending',
-            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-        save_data()
-        
-        await notify_admin_deposit(context, telegram_id, user_data['username'], amount, method, trx_id)
-        
-        await update.message.reply_text(
-            f"✅ *DEPOSIT DIAJUKAN!*\n\n"
-            f"💰 Nominal: Rp {amount:,.0f}\n"
-            f"💳 Metode: {method.upper()}\n"
-            f"🆔 ID: `{trx_id}`\n\n"
-            f"📌 *TUNGGU KONFIRMASI DARI ADMIN*\n"
-            f"Saldo akan otomatis masuk setelah admin approve.\n\n"
-            f"⏱️ Estimasi: 1-5 menit",
-            parse_mode='Markdown'
-        )
-        
-        context.user_data['waiting_deposit'] = False
-        
-    except ValueError:
-        await update.message.reply_text("❌ Masukkan nominal yang benar! Contoh: 50000")
-
-# ========== ADMIN APPROVE/REJECT DEPOSIT ==========
+# ========== ADMIN APPROVE DEPOSIT ==========
 async def admin_approve_deposit(update: Update, context):
     query = update.callback_query
     data = query.data
-    trx_id = data.replace('approve_', '')
+    trx_id = data.replace('deposit_approve_', '')
     
     if trx_id not in pending_deposits:
         await query.answer("Transaksi tidak ditemukan!", show_alert=True)
@@ -646,7 +602,7 @@ async def admin_approve_deposit(update: Update, context):
     total = amount + bonus
     
     # Tambah saldo
-    success, trx_id_deposit = add_balance(user_id, total, f"Deposit via {method.upper()}", is_deposit=True)
+    add_balance(user_id, total, f"Deposit via {method.upper()}", is_deposit=True)
     
     # Update status
     pending['status'] = 'approved'
@@ -664,9 +620,9 @@ async def admin_approve_deposit(update: Update, context):
         parse_mode='Markdown'
     )
     
-    # Notifikasi ke user
+    # Kirim notifikasi ke user
     try:
-        user_data = get_user_data(user_id)
+        user_data = get_user(user_id)
         await context.bot.send_message(
             chat_id=user_id,
             text=f"✅ *DEPOSIT BERHASIL!*\n\n"
@@ -684,7 +640,7 @@ async def admin_approve_deposit(update: Update, context):
 async def admin_reject_deposit(update: Update, context):
     query = update.callback_query
     data = query.data
-    trx_id = data.replace('reject_', '')
+    trx_id = data.replace('deposit_reject_', '')
     
     if trx_id not in pending_deposits:
         await query.answer("Transaksi tidak ditemukan!", show_alert=True)
@@ -712,7 +668,7 @@ async def admin_reject_deposit(update: Update, context):
         parse_mode='Markdown'
     )
     
-    # Notifikasi ke user
+    # Kirim notifikasi ke user
     try:
         await context.bot.send_message(
             chat_id=user_id,
@@ -725,7 +681,7 @@ async def admin_reject_deposit(update: Update, context):
     except:
         pass
 
-# ========== GAME MENU ==========
+# ========== GAME & LAINNYA (SAMA SEPERTI SEBELUMNYA) ==========
 async def games_menu(update: Update, context):
     query = update.callback_query
     await query.answer()
@@ -774,7 +730,7 @@ async def spin_handler(update: Update, context):
     game_key = parts[1]
     bet = int(parts[2])
     telegram_id = update.effective_user.id
-    user_data = get_user_data(telegram_id)
+    user_data = get_user(telegram_id)
     
     if not user_data:
         await query.answer("Anda belum login!", show_alert=True)
@@ -788,7 +744,7 @@ async def spin_handler(update: Update, context):
     
     success, _ = deduct_balance(telegram_id, bet, f"SPIN {game_data['name']}")
     if not success:
-        await query.answer("Gagal melakukan spin!", show_alert=True)
+        await query.answer("Gagal!", show_alert=True)
         return
     
     result = spin_slot(bet, game_key)
@@ -796,7 +752,7 @@ async def spin_handler(update: Update, context):
     if result['win'] > 0:
         add_win(telegram_id, result['win'], game_data['name'])
     
-    user_data = get_user_data(telegram_id)
+    user_data = get_user(telegram_id)
     
     result_text = f"🎲 *SPIN RESULT* 🎲\n\n"
     result_text += f"{game_data['emoji']} {game_data['name']}\n"
@@ -818,163 +774,13 @@ async def spin_handler(update: Update, context):
         parse_mode='Markdown'
     )
 
-# ========== STATUS ==========
-async def status_menu(update: Update, context):
-    query = update.callback_query
-    await query.answer()
-    
-    user_data = get_user_data(update.effective_user.id)
-    if not user_data:
-        await query.edit_message_text("❌ Anda belum login! Ketik /start")
-        return
-    
-    win_rate = (user_data['total_win'] / max(user_data['total_spin'] * 1000, 1)) * 100 if user_data['total_spin'] > 0 else 0
-    
-    status_text = f"📊 *STATUS AKUN*\n\n"
-    status_text += f"👤 Username: {user_data['username']}\n"
-    status_text += f"💰 Saldo: Rp {user_data['balance']:,.0f}\n"
-    status_text += f"💵 Total Deposit: Rp {user_data['total_deposit']:,.0f}\n"
-    status_text += f"🎲 Total Spin: {user_data['total_spin']}\n"
-    status_text += f"🏆 Total Win: Rp {user_data['total_win']:,.0f}\n"
-    status_text += f"📈 Win Rate: {win_rate:.1f}%\n"
-    status_text += f"👥 Referral: {user_data['referral_count']} orang\n"
-    status_text += f"🎁 Referral Bonus: Rp {user_data['referral_bonus']:,.0f}\n"
-    status_text += f"📅 Bergabung: {user_data['joined']}\n"
-    
-    keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data='back_main')]]
-    
-    await query.edit_message_text(
-        status_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-# ========== BONUS ==========
-async def bonus_menu(update: Update, context):
-    query = update.callback_query
-    await query.answer()
-    
-    user_data = get_user_data(update.effective_user.id)
-    if not user_data:
-        await query.edit_message_text("❌ Anda belum login! Ketik /start")
-        return
-    
-    today = datetime.now().strftime('%Y-%m-%d')
-    can_claim = user_data.get('last_bonus') != today
-    
-    keyboard = []
-    if can_claim:
-        keyboard.append([InlineKeyboardButton("🎁 DAILY BONUS", callback_data='bonus_daily')])
-    keyboard.append([InlineKeyboardButton("👥 REFERRAL BONUS", callback_data='bonus_referral')])
-    keyboard.append([InlineKeyboardButton("🔙 BACK", callback_data='back_main')])
-    
-    await query.edit_message_text(
-        f"🎁 *BONUS MENU*\n\n"
-        f"💰 Saldo: Rp {user_data['balance']:,.0f}\n\n"
-        f"🎁 Daily Bonus: {'✅ READY' if can_claim else '❌ SUDAH CLAIM'}\n"
-        f"👥 Referral Bonus: Rp 10,000 per referral aktif\n\n"
-        f"Pilih bonus:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-async def bonus_daily(update: Update, context):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = update.effective_user.id
-    user_data = get_user_data(user_id)
-    today = datetime.now().strftime('%Y-%m-%d')
-    
-    if not user_data:
-        await query.edit_message_text("❌ Anda belum login!")
-        return
-    
-    if user_data.get('last_bonus') == today:
-        await query.edit_message_text("❌ Anda sudah claim daily bonus hari ini!")
-        return
-    
-    bonus = random.randint(5000, 25000)
-    user_data['last_bonus'] = today
-    add_balance(user_id, bonus, "Daily Bonus")
-    
-    await query.edit_message_text(
-        f"🎉 *DAILY BONUS CLAIMED!*\n\n"
-        f"💰 Bonus: Rp {bonus:,.0f}\n"
-        f"💵 Saldo Baru: Rp {get_user_data(user_id)['balance']:,.0f}\n\n"
-        f"Kembali besok untuk claim lagi!",
-        parse_mode='Markdown'
-    )
-
-async def bonus_referral(update: Update, context):
-    query = update.callback_query
-    await query.answer()
-    
-    user_data = get_user_data(update.effective_user.id)
-    if not user_data:
-        await query.edit_message_text("❌ Anda belum login!")
-        return
-    
-    await query.edit_message_text(
-        f"👥 *REFERRAL BONUS*\n\n"
-        f"🔗 *Kode Referral:* `{user_data['referral_code']}`\n\n"
-        f"👥 *Total Referral:* {user_data['referral_count']} orang\n"
-        f"💰 *Bonus Diterima:* Rp {user_data['referral_bonus']:,.0f}\n\n"
-        f"📌 *CARA DAPAT BONUS:*\n"
-        f"1. Bagikan link ini ke teman:\n"
-        f"`https://t.me/JudolBot?start={user_data['referral_code']}`\n"
-        f"2. Teman daftar\n"
-        f"3. Anda dapat bonus Rp 10,000\n\n"
-        f"🎁 *BONUS TAMBAHAN:*\n"
-        f"• 5 referral = +Rp 50,000\n"
-        f"• 10 referral = +Rp 100,000",
-        parse_mode='Markdown'
-    )
-
-# ========== REFERRAL ==========
-async def referral_menu(update: Update, context):
-    await bonus_referral(update, context)
-
-# ========== HISTORY ==========
-async def history_menu(update: Update, context):
-    query = update.callback_query
-    await query.answer()
-    
-    user_data = get_user_data(update.effective_user.id)
-    if not user_data:
-        await query.edit_message_text("❌ Anda belum login! Ketik /start")
-        return
-    
-    user_transactions = [t for t in transactions if str(t['user_id']) == str(update.effective_user.id)]
-    user_transactions.reverse()
-    last_10 = user_transactions[:10]
-    
-    if not last_10:
-        await query.edit_message_text("📜 Belum ada history transaksi", parse_mode='Markdown')
-        return
-    
-    text = "📜 *HISTORY TRANSAKSI*\n\n"
-    for t in last_10:
-        icon = "➕" if t['type'] in ['DEPOSIT', 'BONUS', 'WIN', 'REFERRAL'] else "➖"
-        text += f"{icon} *{t['type']}*: Rp {t['amount']:,.0f}\n"
-        text += f"   🕐 {t['time'][:16]}\n\n"
-    
-    keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data='back_main')]]
-    
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-# ========== WITHDRAW ==========
 async def withdraw_menu(update: Update, context):
     query = update.callback_query
     await query.answer()
     
-    user_data = get_user_data(update.effective_user.id)
+    user_data = get_user(update.effective_user.id)
     if not user_data:
-        await query.edit_message_text("❌ Anda belum login! Ketik /start")
+        await query.edit_message_text("❌ Anda belum login!")
         return
     
     keyboard = [
@@ -986,9 +792,10 @@ async def withdraw_menu(update: Update, context):
     await query.edit_message_text(
         f"💳 *WITHDRAW*\n\n"
         f"💰 Saldo: Rp {user_data['balance']:,.0f}\n\n"
-        f"📌 *Minimal Withdraw:* Rp 50,000\n"
-        f"⚡ *Proses:* 1-5 menit\n\n"
-        f"Pilih metode:",
+        f"📌 Minimal: Rp 50,000\n\n"
+        f"Format: `nominal|nomor_akun`\n"
+        f"Contoh: `100000|085969081186`\n\n"
+        f"Ketik format di chat:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
@@ -998,13 +805,10 @@ async def withdraw_form(update: Update, context):
     method = query.data.replace('withdraw_', '')
     await query.answer()
     
-    user_data = get_user_data(update.effective_user.id)
-    
     await query.edit_message_text(
         f"💳 *WITHDRAW {method.upper()}*\n\n"
-        f"💰 Saldo: Rp {user_data['balance']:,.0f}\n\n"
-        f"📝 *Format:* `nominal|nomor_akun`\n\n"
-        f"Contoh: *100000|085969081186*\n\n"
+        f"Format: `nominal|nomor_akun`\n\n"
+        f"Contoh: `100000|085969081186`\n\n"
         f"Ketik format di chat:",
         parse_mode='Markdown'
     )
@@ -1024,10 +828,10 @@ async def handle_withdraw(update: Update, context):
         account = parts[1]
         method = context.user_data.get('withdraw_method')
         user_id = update.effective_user.id
-        user_data = get_user_data(user_id)
+        user_data = get_user(user_id)
         
         if not user_data:
-            await update.message.reply_text("❌ Anda belum login! Ketik /start")
+            await update.message.reply_text("❌ Anda belum login!")
             return
         
         if amount < 50000:
@@ -1046,8 +850,7 @@ async def handle_withdraw(update: Update, context):
                 f"💰 Nominal: Rp {amount:,.0f}\n"
                 f"💳 Metode: {method.upper()}\n"
                 f"📱 Akun: {account}\n"
-                f"💵 Sisa Saldo: Rp {get_user_data(user_id)['balance']:,.0f}\n\n"
-                f"🆔 ID: {trx_id}\n\n"
+                f"💵 Sisa: Rp {get_user(user_id)['balance']:,.0f}\n\n"
                 f"💰 Dana akan dikirim dalam 1-5 menit!",
                 parse_mode='Markdown'
             )
@@ -1057,9 +860,132 @@ async def handle_withdraw(update: Update, context):
         context.user_data['waiting_withdraw'] = False
         
     except ValueError:
-        await update.message.reply_text("❌ Masukkan nominal yang benar! Contoh: 100000|085969081186")
+        await update.message.reply_text("❌ Masukkan nominal yang benar!")
 
-# ========== BACK TO MAIN ==========
+async def status_menu(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    
+    user_data = get_user(update.effective_user.id)
+    if not user_data:
+        await query.edit_message_text("❌ Anda belum login!")
+        return
+    
+    status_text = f"📊 *STATUS*\n\n"
+    status_text += f"👤 Username: {user_data['username']}\n"
+    status_text += f"💰 Saldo: Rp {user_data['balance']:,.0f}\n"
+    status_text += f"💵 Deposit: Rp {user_data['total_deposit']:,.0f}\n"
+    status_text += f"🎲 Spin: {user_data['total_spin']}\n"
+    status_text += f"🏆 Win: Rp {user_data['total_win']:,.0f}\n"
+    status_text += f"🔗 Kode: {user_data['referral_code']}\n"
+    status_text += f"📅 Join: {user_data['joined']}\n"
+    
+    keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data='back_main')]]
+    
+    await query.edit_message_text(
+        status_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def bonus_menu(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    
+    user_data = get_user(update.effective_user.id)
+    if not user_data:
+        await query.edit_message_text("❌ Anda belum login!")
+        return
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    can_claim = user_data.get('last_bonus') != today
+    
+    keyboard = []
+    if can_claim:
+        keyboard.append([InlineKeyboardButton("🎁 DAILY BONUS", callback_data='bonus_daily')])
+    keyboard.append([InlineKeyboardButton("👥 REFERRAL", callback_data='bonus_referral')])
+    keyboard.append([InlineKeyboardButton("🔙 BACK", callback_data='back_main')])
+    
+    await query.edit_message_text(
+        f"🎁 *BONUS*\n\n"
+        f"💰 Saldo: Rp {user_data['balance']:,.0f}\n\n"
+        f"Daily Bonus: {'✅ READY' if can_claim else '❌ CLAIMED'}\n"
+        f"Referral: Rp 10,000 per referral\n\n"
+        f"Pilih bonus:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def bonus_daily(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    user_data = get_user(user_id)
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    if user_data.get('last_bonus') == today:
+        await query.edit_message_text("❌ Sudah claim hari ini!")
+        return
+    
+    bonus = random.randint(5000, 25000)
+    user_data['last_bonus'] = today
+    add_balance(user_id, bonus, "Daily Bonus")
+    
+    await query.edit_message_text(
+        f"🎉 *DAILY BONUS!*\n\n"
+        f"💰 Bonus: Rp {bonus:,.0f}\n"
+        f"💵 Saldo: Rp {get_user(user_id)['balance']:,.0f}",
+        parse_mode='Markdown'
+    )
+
+async def bonus_referral(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    
+    user_data = get_user(update.effective_user.id)
+    
+    await query.edit_message_text(
+        f"👥 *REFERRAL*\n\n"
+        f"🔗 Kode: `{user_data['referral_code']}`\n\n"
+        f"👥 Total: {user_data.get('referral_count', 0)} orang\n"
+        f"💰 Bonus: Rp {user_data.get('referral_bonus', 0):,.0f}\n\n"
+        f"📌 Bagikan link:\n"
+        f"`https://t.me/JudolBot?start={user_data['referral_code']}`",
+        parse_mode='Markdown'
+    )
+
+async def history_menu(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    
+    user_data = get_user(update.effective_user.id)
+    if not user_data:
+        await query.edit_message_text("❌ Anda belum login!")
+        return
+    
+    user_transactions = [t for t in transactions if str(t['user_id']) == str(update.effective_user.id)]
+    user_transactions.reverse()
+    last_10 = user_transactions[:10]
+    
+    if not last_10:
+        await query.edit_message_text("📜 Belum ada history")
+        return
+    
+    text = "📜 *HISTORY*\n\n"
+    for t in last_10:
+        icon = "➕" if t['type'] in ['DEPOSIT', 'BONUS', 'WIN'] else "➖"
+        text += f"{icon} {t['type']}: Rp {t['amount']:,.0f}\n"
+        text += f"   🕐 {t['time'][:16]}\n\n"
+    
+    keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data='back_main')]]
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
 async def back_main(update: Update, context):
     await start(update, context)
 
@@ -1085,10 +1011,10 @@ async def callback_handler(update: Update, context):
     elif data == 'bonus':
         await bonus_menu(update, context)
     elif data == 'referral':
-        await referral_menu(update, context)
+        await bonus_referral(update, context)
     elif data == 'history':
         await history_menu(update, context)
-    elif data.startswith('deposit_'):
+    elif data.startswith('deposit_') and data not in ['deposit_approve', 'deposit_reject']:
         await deposit_method(update, context)
     elif data.startswith('withdraw_'):
         await withdraw_form(update, context)
@@ -1104,9 +1030,9 @@ async def callback_handler(update: Update, context):
         await admin_approve_register(update, context)
     elif data.startswith('reg_reject_'):
         await admin_reject_register(update, context)
-    elif data.startswith('approve_'):
+    elif data.startswith('deposit_approve_'):
         await admin_approve_deposit(update, context)
-    elif data.startswith('reject_'):
+    elif data.startswith('deposit_reject_'):
         await admin_reject_deposit(update, context)
 
 async def handle_message(update: Update, context):
@@ -1128,15 +1054,16 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print("=" * 55)
-    print("🎰 JUDOL BOT - WITH ADMIN APPROVAL")
+    print("🎰 JUDOL BOT - WITH ADMIN CONFIRMATION")
     print("🤖 Bot Started!")
     print("=" * 55)
     print("💳 PAYMENT ACTIVE:")
     print(f"💙 DANA: 085969081186 (YULIANA)")
     print(f"💚 GOPAY: 085969081186 (YULIANA)")
     print("=" * 55)
-    print("📝 REGISTRATION:")
-    print("User harus register, ADMIN yang approve!")
+    print("📝 REGISTRATION & DEPOSIT:")
+    print("Setiap registrasi dan deposit akan dikirim ke ADMIN")
+    print(f"👑 ADMIN ID: {ADMIN_ID}")
     print("=" * 55)
     
     application.run_polling()
