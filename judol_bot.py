@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-# JUDOL BOT - WITH ADMIN CONFIRMATION
-# TOKEN: 8743058682:AAErZ9IteuI9ZMIaPRfhnrM3x1-4uftQR3I
+# JUDOL BOT - FULL VERSION
+# TOKEN: 7913598777:AAHHsSzkhEvTpbwUw87gUJ7OUbkftL9QSfA
 # ADMIN ID: 6481058235
-# DANA: 085969081186 (YULIANA)
-# GOPAY: 085969081186 (YULIANA)
 
 import os
 import json
@@ -15,21 +13,23 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # ========== KONFIGURASI ==========
-TOKEN = "8743058682:AAErZ9IteuI9ZMIaPRfhnrM3x1-4uftQR3I"
+TOKEN = "7913598777:AAHHsSzkhEvTpbwUw87gUJ7OUbkftL9QSfA"
 ADMIN_ID = 6481058235
 
 # ========== FILE DATA ==========
 USERS_FILE = "/tmp/users.json"
 TRANSACTIONS_FILE = "/tmp/transactions.json"
 PENDING_FILE = "/tmp/pending.json"
+SPIN_COUNTS_FILE = "/tmp/spin_counts.json"
 
 users = {}
 transactions = []
 pending_registrations = {}
 pending_deposits = {}
+user_spin_counts = {}
 
 def load_data():
-    global users, transactions, pending_registrations, pending_deposits
+    global users, transactions, pending_registrations, pending_deposits, user_spin_counts
     try:
         with open(USERS_FILE, 'r') as f:
             users = json.load(f)
@@ -48,6 +48,11 @@ def load_data():
     except:
         pending_registrations = {}
         pending_deposits = {}
+    try:
+        with open(SPIN_COUNTS_FILE, 'r') as f:
+            user_spin_counts = json.load(f)
+    except:
+        user_spin_counts = {}
 
 def save_data():
     with open(USERS_FILE, 'w') as f:
@@ -59,6 +64,8 @@ def save_data():
             'registrations': pending_registrations,
             'deposits': pending_deposits
         }, f)
+    with open(SPIN_COUNTS_FILE, 'w') as f:
+        json.dump(user_spin_counts, f)
 
 load_data()
 
@@ -144,27 +151,202 @@ def add_win(user_id, amount, game):
         users[uid]['total_win'] += amount
         save_data()
 
-def spin_slot(bet, game):
-    rand = random.random()
-    if rand < 0.4:
-        win, result_type = 0, "LOSE"
-    elif rand < 0.65:
-        win, result_type = int(bet * 0.5), "SMALL WIN"
-    elif rand < 0.8:
-        win, result_type = int(bet * 1), "WIN"
-    elif rand < 0.9:
-        win, result_type = int(bet * 2), "BIG WIN"
-    elif rand < 0.95:
-        win, result_type = int(bet * 5), "MEGA WIN"
-    elif rand < 0.98:
-        win, result_type = int(bet * 10), "JACKPOT"
-    else:
-        win, result_type = int(bet * 25), "SUPER JACKPOT"
+# ========== SLOT SPIN DENGAN POLA WIN/LOSE & FOTO ==========
+def spin_slot_with_pattern(user_id, bet, game):
+    """Slot dengan pola win di awal, kalah di akhir, dan foto kalo menang"""
     
-    return {'win': win, 'type': result_type, 'bet': bet, 'game': game}
+    # Track spin count per user
+    if str(user_id) not in user_spin_counts:
+        user_spin_counts[str(user_id)] = 0
+    user_spin_counts[str(user_id)] += 1
+    spin_num = user_spin_counts[str(user_id)]
+    save_data()
+    
+    # Tentukan win rate berdasarkan jumlah spin
+    if spin_num <= 10:
+        win_rate = 0.70  # 70% win di awal
+        streak = "🔥 HOT STREAK"
+    elif spin_num <= 50:
+        win_rate = 0.40  # 40% win di tengah
+        streak = "⚡ NORMAL"
+    else:
+        win_rate = 0.20  # 20% win di akhir (banyak kalah)
+        streak = "❄️ COLD STREAK"
+    
+    # Multiplier random (tidak bulat)
+    multipliers = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  # lose
+        0.3, 0.5, 0.7, 0.9,              # small win
+        1.0, 1.2, 1.5, 1.8, 2.0,        # medium win
+        2.5, 3.0, 4.0, 5.0,              # big win
+        7.5, 10.0, 12.5, 15.0,           # mega win
+        20.0, 25.0, 30.0, 40.0,          # jackpot
+        50.0, 75.0, 100.0, 150.0,        # super jackpot
+        200.0, 250.0, 500.0, 1000.0      # grand jackpot
+    ]
+    
+    # Tentukan apakah menang
+    is_win = random.random() < win_rate
+    
+    if is_win:
+        # Pilih multiplier berdasarkan win rate
+        if win_rate >= 0.6:
+            multiplier = random.choice(multipliers[15:])  # dari 2.5 ke atas
+        elif win_rate >= 0.35:
+            multiplier = random.choice(multipliers[10:25])  # dari 1.0 ke 15.0
+        else:
+            multiplier = random.choice(multipliers[5:15])  # dari 0.5 ke 5.0
+        
+        win_amount = int(bet * multiplier)
+        
+        # Tambah random biar ga bulat
+        if win_amount > 0:
+            random_cents = random.randint(-500, 500)
+            win_amount = max(100, win_amount + random_cents)
+        
+        # Jenis kemenangan dan foto
+        if multiplier >= 500:
+            result_type = "💎 GRAND JACKPOT"
+            emoji = "💎"
+            image = "🎰"  # placeholder foto
+        elif multiplier >= 250:
+            result_type = "👑 MAJOR JACKPOT"
+            emoji = "👑"
+            image = "🎰"
+        elif multiplier >= 100:
+            result_type = "🏆 MEGA JACKPOT"
+            emoji = "🏆"
+            image = "🎰"
+        elif multiplier >= 50:
+            result_type = "🎉 SUPER JACKPOT"
+            emoji = "🎉"
+            image = "🎰"
+        elif multiplier >= 25:
+            result_type = "🎰 JACKPOT"
+            emoji = "🎰"
+            image = "🎰"
+        elif multiplier >= 10:
+            result_type = "🔥 MEGA WIN"
+            emoji = "🔥"
+            image = "🎰"
+        elif multiplier >= 5:
+            result_type = "🎉 BIG WIN"
+            emoji = "🎉"
+            image = "🎰"
+        elif multiplier >= 2:
+            result_type = "😊 WIN"
+            emoji = "😊"
+            image = "🎰"
+        else:
+            result_type = "😊 SMALL WIN"
+            emoji = "😊"
+            image = "🎰"
+        
+        return {
+            'win': win_amount,
+            'type': result_type,
+            'multiplier': multiplier,
+            'bet': bet,
+            'game': game,
+            'is_win': True,
+            'spin_num': spin_num,
+            'win_rate': win_rate,
+            'streak': streak,
+            'emoji': emoji,
+            'image': image
+        }
+    else:
+        return {
+            'win': 0,
+            'type': '😢 LOSE',
+            'multiplier': 0,
+            'bet': bet,
+            'game': game,
+            'is_win': False,
+            'spin_num': spin_num,
+            'win_rate': win_rate,
+            'streak': streak,
+            'emoji': '😢',
+            'image': '🎰'
+        }
 
-# ========== KIRIM NOTIFIKASI KE ADMIN ==========
-async def notify_admin_register(context, telegram_id, username, password, referrer):
+def format_spin_result(result, game_data, user_balance):
+    """Format hasil spin dengan emoji dan foto"""
+    spin_num = result['spin_num']
+    win = result['win']
+    bet = result['bet']
+    streak = result['streak']
+    
+    # Format nominal
+    bet_formatted = f"{bet:,}".replace(",", ".")
+    
+    if win > 0:
+        win_formatted = f"{win:,}".replace(",", ".")
+        
+        # Header berdasarkan jenis kemenangan
+        if result['multiplier'] >= 100:
+            header = f"{result['emoji']}{result['emoji']}{result['emoji']} {result['type']} {result['emoji']}{result['emoji']}{result['emoji']}"
+            border = "═" * 45
+        elif result['multiplier'] >= 25:
+            header = f"{result['emoji']}{result['emoji']} {result['type']} {result['emoji']}{result['emoji']}"
+            border = "═" * 42
+        else:
+            header = f"{result['emoji']} {result['type']} {result['emoji']}"
+            border = "═" * 38
+        
+        result_text = f"""
+{header}
+{border}
+
+{game_data['emoji']} *{game_data['name']}*
+
+🎲 *Spin ke-{spin_num}*
+💰 *Bet:* Rp {bet_formatted}
+🎯 *Multiplier:* x{result['multiplier']}
+🏆 *WIN:* Rp {win_formatted}
+
+📊 *Streak:* {streak}
+
+{border}
+💵 *Saldo Baru:* Rp {user_balance:,.0f}
+
+🎉 *SELAMAT!* 🎉
+"""
+    else:
+        result_text = f"""
+😢😢😢 {result['type']} 😢😢😢
+{'═' * 38}
+
+{game_data['emoji']} *{game_data['name']}*
+
+🎲 *Spin ke-{spin_num}*
+💰 *Bet:* Rp {bet_formatted}
+🎯 *Result:* LOSE
+
+📊 *Streak:* {streak}
+
+{'═' * 38}
+💵 *Saldo Baru:* Rp {user_balance:,.0f}
+
+💪 *Semangat! Spin lagi!*
+"""
+    
+    return result_text
+
+def get_user_stats(user_id):
+    if str(user_id) in user_spin_counts:
+        spins = user_spin_counts[str(user_id)]
+        if spins <= 10:
+            status = "🔥 HOT STREAK - Peluang Menang Tinggi!"
+        elif spins <= 50:
+            status = "⚡ NORMAL - Peluang Menang Standar"
+        else:
+            status = "❄️ COLD STREAK - Peluang Menang Rendah"
+        return spins, status
+    return 0, "Belum ada spin"
+
+# ========== NOTIFIKASI ADMIN ==========
+async def notify_admin_register(context, telegram_id, username, password):
     keyboard = [
         [InlineKeyboardButton("✅ APPROVE", callback_data=f"reg_approve_{telegram_id}")],
         [InlineKeyboardButton("❌ REJECT", callback_data=f"reg_reject_{telegram_id}")]
@@ -174,7 +356,6 @@ async def notify_admin_register(context, telegram_id, username, password, referr
     message += f"👤 Username: {username}\n"
     message += f"🆔 Telegram ID: {telegram_id}\n"
     message += f"🔑 Password: {password}\n"
-    message += f"👥 Referral: {referrer or 'Tidak ada'}\n"
     message += f"🕐 Waktu: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     message += f"Klik APPROVE untuk mengaktifkan akun."
     
@@ -185,20 +366,28 @@ async def notify_admin_register(context, telegram_id, username, password, referr
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def notify_admin_deposit(context, user_id, username, amount, method, trx_id, proof=None):
+async def notify_admin_deposit(context, user_id, username, amount, method, trx_id):
     keyboard = [
         [InlineKeyboardButton("✅ APPROVE", callback_data=f"deposit_approve_{trx_id}")],
         [InlineKeyboardButton("❌ REJECT", callback_data=f"deposit_reject_{trx_id}")]
     ]
     
+    # Hitung bonus
+    bonus = 0
+    if amount >= 100000:
+        bonus = int(amount * 0.1)
+    elif amount >= 50000:
+        bonus = int(amount * 0.05)
+    total = amount + bonus
+    
     message = f"💰 *DEPOSIT PENDING*\n\n"
     message += f"👤 User: {username}\n"
     message += f"🆔 ID: {user_id}\n"
     message += f"💰 Nominal: Rp {amount:,.0f}\n"
+    message += f"🎁 Bonus: Rp {bonus:,.0f}\n"
+    message += f"💵 Total: Rp {total:,.0f}\n"
     message += f"💳 Metode: {method.upper()}\n"
     message += f"🆔 Trx ID: {trx_id}\n"
-    if proof:
-        message += f"📝 Bukti: {proof}\n"
     message += f"🕐 Waktu: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     message += f"Klik APPROVE untuk menambah saldo."
     
@@ -215,7 +404,6 @@ async def start(update: Update, context):
     user_data = get_user(user.id)
     
     if user_data:
-        # Sudah terdaftar dan approved
         keyboard = [
             [InlineKeyboardButton("🎰 PILIH GAME", callback_data='games')],
             [InlineKeyboardButton("💰 DEPOSIT", callback_data='deposit')],
@@ -237,7 +425,6 @@ async def start(update: Update, context):
             parse_mode='Markdown'
         )
     else:
-        # Belum terdaftar
         keyboard = [
             [InlineKeyboardButton("📝 REGISTER", callback_data='register')],
             [InlineKeyboardButton("🔐 LOGIN", callback_data='login')]
@@ -254,7 +441,7 @@ async def start(update: Update, context):
             parse_mode='Markdown'
         )
 
-# ========== REGISTER (DENGAN APPROVAL ADMIN) ==========
+# ========== REGISTER ==========
 async def register_menu(update: Update, context):
     query = update.callback_query
     await query.answer()
@@ -314,7 +501,7 @@ async def handle_register(update: Update, context):
         save_data()
         
         # Kirim notifikasi ke admin
-        await notify_admin_register(context, telegram_id, username, password, None)
+        await notify_admin_register(context, telegram_id, username, password)
         
         await update.message.reply_text(
             f"✅ *REGISTRASI DIAJUKAN!*\n\n"
@@ -363,7 +550,6 @@ async def handle_login(update: Update, context):
         found = False
         for uid, data in users.items():
             if data.get('username') == username and data.get('password') == hash_password(password):
-                # Update telegram_id
                 users[str(telegram_id)] = data
                 del users[uid]
                 save_data()
@@ -386,7 +572,7 @@ async def handle_login(update: Update, context):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
-# ========== DEPOSIT (DENGAN APPROVAL ADMIN) ==========
+# ========== DEPOSIT ==========
 async def deposit_menu(update: Update, context):
     query = update.callback_query
     await query.answer()
@@ -405,8 +591,8 @@ async def deposit_menu(update: Update, context):
     await query.edit_message_text(
         f"💰 *DEPOSIT*\n\n"
         f"Pilih metode deposit:\n\n"
-        f"💙 *DANA* - {PAYMENT['dana']['number']}\n"
-        f"💚 *GOPAY* - {PAYMENT['gopay']['number']}\n\n"
+        f"💙 *DANA* - {PAYMENT['dana']['number']} a.n {PAYMENT['dana']['owner']}\n"
+        f"💚 *GOPAY* - {PAYMENT['gopay']['number']} a.n {PAYMENT['gopay']['owner']}\n\n"
         f"📌 *Minimal Deposit:* Rp 10,000\n"
         f"🎁 *Bonus Deposit:* 5% (min Rp 50,000) | 10% (min Rp 100,000)\n\n"
         f"⚠️ *SETELAH TRANSFER, KETIK NOMINAL DI CHAT*\n"
@@ -429,9 +615,8 @@ async def deposit_method(update: Update, context):
         f"Contoh: *50000*\n\n"
         f"📌 *CARA DEPOSIT:*\n"
         f"1. Transfer ke nomor di atas\n"
-        f"2. Screenshot bukti transfer\n"
-        f"3. Ketik nominal di chat\n"
-        f"4. *TUNGGU KONFIRMASI DARI ADMIN*\n\n"
+        f"2. Ketik nominal di chat\n"
+        f"3. *TUNGGU KONFIRMASI DARI ADMIN*\n\n"
         f"Ketik nominal:",
         parse_mode='Markdown'
     )
@@ -485,203 +670,7 @@ async def handle_deposit(update: Update, context):
     except ValueError:
         await update.message.reply_text("❌ Masukkan nominal yang benar! Contoh: 50000")
 
-# ========== ADMIN APPROVE REGISTRATION ==========
-async def admin_approve_register(update: Update, context):
-    query = update.callback_query
-    data = query.data
-    telegram_id = data.replace('reg_approve_', '')
-    
-    if telegram_id not in pending_registrations:
-        await query.answer("Request tidak ditemukan!", show_alert=True)
-        return
-    
-    req = pending_registrations[telegram_id]
-    
-    # Buat user
-    users[telegram_id] = {
-        'telegram_id': int(telegram_id),
-        'username': req['username'],
-        'password': hash_password(req['password']),
-        'balance': 0,
-        'total_deposit': 0,
-        'total_withdraw': 0,
-        'total_spin': 0,
-        'total_win': 0,
-        'referral_code': generate_referral_code(),
-        'joined': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'last_bonus': None
-    }
-    
-    # Hapus pending
-    del pending_registrations[telegram_id]
-    save_data()
-    
-    await query.edit_message_text(
-        f"✅ *REGISTRASI APPROVED!*\n\n"
-        f"👤 Username: {req['username']}\n"
-        f"🆔 Telegram ID: {telegram_id}\n\n"
-        f"✅ Akun telah diaktifkan!\n"
-        f"User sekarang bisa login.",
-        parse_mode='Markdown'
-    )
-    
-    # Kirim notifikasi ke user
-    try:
-        await context.bot.send_message(
-            chat_id=int(telegram_id),
-            text=f"✅ *AKUN ANDA TELAH DIAPPROVE!*\n\n"
-                 f"👤 Username: {req['username']}\n"
-                 f"🔑 Password: {req['password']}\n\n"
-                 f"Silakan LOGIN dengan perintah /start",
-            parse_mode='Markdown'
-        )
-    except:
-        pass
-
-async def admin_reject_register(update: Update, context):
-    query = update.callback_query
-    data = query.data
-    telegram_id = data.replace('reg_reject_', '')
-    
-    if telegram_id not in pending_registrations:
-        await query.answer("Request tidak ditemukan!", show_alert=True)
-        return
-    
-    req = pending_registrations[telegram_id]
-    
-    del pending_registrations[telegram_id]
-    save_data()
-    
-    await query.edit_message_text(
-        f"❌ *REGISTRASI REJECTED!*\n\n"
-        f"👤 Username: {req['username']}\n"
-        f"🆔 Telegram ID: {telegram_id}\n\n"
-        f"❌ Registrasi ditolak!",
-        parse_mode='Markdown'
-    )
-    
-    # Kirim notifikasi ke user
-    try:
-        await context.bot.send_message(
-            chat_id=int(telegram_id),
-            text=f"❌ *REGISTRASI DITOLAK!*\n\n"
-                 f"👤 Username: {req['username']}\n\n"
-                 f"⚠️ Pendaftaran Anda ditolak oleh admin.",
-            parse_mode='Markdown'
-        )
-    except:
-        pass
-
-# ========== ADMIN APPROVE DEPOSIT ==========
-async def admin_approve_deposit(update: Update, context):
-    query = update.callback_query
-    data = query.data
-    trx_id = data.replace('deposit_approve_', '')
-    
-    if trx_id not in pending_deposits:
-        await query.answer("Transaksi tidak ditemukan!", show_alert=True)
-        return
-    
-    pending = pending_deposits[trx_id]
-    if pending['status'] != 'pending':
-        await query.answer("Transaksi sudah diproses!", show_alert=True)
-        return
-    
-    user_id = pending['user_id']
-    amount = pending['amount']
-    method = pending['method']
-    username = pending['username']
-    
-    # Hitung bonus
-    bonus = 0
-    if amount >= 100000:
-        bonus = int(amount * 0.1)
-    elif amount >= 50000:
-        bonus = int(amount * 0.05)
-    
-    total = amount + bonus
-    
-    # Tambah saldo
-    add_balance(user_id, total, f"Deposit via {method.upper()}", is_deposit=True)
-    
-    # Update status
-    pending['status'] = 'approved'
-    pending['approved_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    save_data()
-    
-    await query.edit_message_text(
-        f"✅ *DEPOSIT APPROVED!*\n\n"
-        f"👤 User: {username}\n"
-        f"💰 Nominal: Rp {amount:,.0f}\n"
-        f"🎁 Bonus: Rp {bonus:,.0f}\n"
-        f"💵 Total Masuk: Rp {total:,.0f}\n"
-        f"🆔 Trx ID: {trx_id}\n\n"
-        f"✅ Saldo telah ditambahkan!",
-        parse_mode='Markdown'
-    )
-    
-    # Kirim notifikasi ke user
-    try:
-        user_data = get_user(user_id)
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"✅ *DEPOSIT BERHASIL!*\n\n"
-                 f"💰 Nominal: Rp {amount:,.0f}\n"
-                 f"🎁 Bonus: Rp {bonus:,.0f}\n"
-                 f"💵 Total Masuk: Rp {total:,.0f}\n"
-                 f"💳 Metode: {method.upper()}\n"
-                 f"💵 Saldo Baru: Rp {user_data['balance']:,.0f}\n\n"
-                 f"🎰 Ketik /start untuk mulai main!",
-            parse_mode='Markdown'
-        )
-    except:
-        pass
-
-async def admin_reject_deposit(update: Update, context):
-    query = update.callback_query
-    data = query.data
-    trx_id = data.replace('deposit_reject_', '')
-    
-    if trx_id not in pending_deposits:
-        await query.answer("Transaksi tidak ditemukan!", show_alert=True)
-        return
-    
-    pending = pending_deposits[trx_id]
-    if pending['status'] != 'pending':
-        await query.answer("Transaksi sudah diproses!", show_alert=True)
-        return
-    
-    user_id = pending['user_id']
-    username = pending['username']
-    amount = pending['amount']
-    
-    pending['status'] = 'rejected'
-    pending['rejected_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    save_data()
-    
-    await query.edit_message_text(
-        f"❌ *DEPOSIT REJECTED!*\n\n"
-        f"👤 User: {username}\n"
-        f"💰 Nominal: Rp {amount:,.0f}\n"
-        f"🆔 Trx ID: {trx_id}\n\n"
-        f"❌ Deposit ditolak!",
-        parse_mode='Markdown'
-    )
-    
-    # Kirim notifikasi ke user
-    try:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"❌ *DEPOSIT DITOLAK!*\n\n"
-                 f"💰 Nominal: Rp {amount:,.0f}\n"
-                 f"🆔 Trx ID: {trx_id}\n\n"
-                 f"⚠️ Silakan cek bukti transfer Anda dan ajukan deposit ulang.",
-            parse_mode='Markdown'
-        )
-    except:
-        pass
-
-# ========== GAME & LAINNYA (SAMA SEPERTI SEBELUMNYA) ==========
+# ========== GAME ==========
 async def games_menu(update: Update, context):
     query = update.callback_query
     await query.answer()
@@ -695,6 +684,10 @@ async def games_menu(update: Update, context):
         f"🎰 *PILIH GAME*\n\n"
         f"💰 Min Bet: Rp 1,000\n"
         f"💰 Max Bet: Rp 100,000\n\n"
+        f"📊 *Info:*\n"
+        f"• 10 spin pertama: Hot Streak 🔥\n"
+        f"• 11-50 spin: Normal ⚡\n"
+        f"• 50+ spin: Cold Streak ❄️\n\n"
         f"🎮 Pilih game:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
@@ -707,6 +700,10 @@ async def game_play(update: Update, context):
     
     await query.answer()
     
+    # Dapatkan statistik user
+    user_id = update.effective_user.id
+    spin_count, streak_status = get_user_stats(user_id)
+    
     keyboard = [
         [InlineKeyboardButton("🔄 SPIN 1x (Rp 1,000)", callback_data=f"spin_{game_key}_1000")],
         [InlineKeyboardButton("🔄 SPIN 3x (Rp 3,000)", callback_data=f"spin_{game_key}_3000")],
@@ -718,6 +715,9 @@ async def game_play(update: Update, context):
         f"{game_data['emoji']} *{game_data['name']}*\n\n"
         f"💰 Min Bet: Rp {game_data['min_bet']:,}\n"
         f"💰 Max Bet: Rp {game_data['max_bet']:,}\n\n"
+        f"📊 *Statistik Anda:*\n"
+        f"🎲 Total Spin: {spin_count}\n"
+        f"{streak_status}\n\n"
         f"🎲 Pilih nominal spin:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
@@ -729,8 +729,8 @@ async def spin_handler(update: Update, context):
     
     game_key = parts[1]
     bet = int(parts[2])
-    telegram_id = update.effective_user.id
-    user_data = get_user(telegram_id)
+    user_id = update.effective_user.id
+    user_data = get_user(user_id)
     
     if not user_data:
         await query.answer("Anda belum login!", show_alert=True)
@@ -742,26 +742,23 @@ async def spin_handler(update: Update, context):
         await query.answer("Saldo tidak mencukupi!", show_alert=True)
         return
     
-    success, _ = deduct_balance(telegram_id, bet, f"SPIN {game_data['name']}")
-    if not success:
-        await query.answer("Gagal!", show_alert=True)
-        return
+    # Kurangi saldo
+    deduct_balance(user_id, bet, f"SPIN {game_data['name']}")
     
-    result = spin_slot(bet, game_key)
+    # Hasil spin dengan pola win/lose
+    result = spin_slot_with_pattern(user_id, bet, game_key)
     
+    # Tambah saldo jika menang
     if result['win'] > 0:
-        add_win(telegram_id, result['win'], game_data['name'])
+        add_win(user_id, result['win'], game_data['name'])
     
-    user_data = get_user(telegram_id)
+    # Update user data
+    user_data = get_user(user_id)
     
-    result_text = f"🎲 *SPIN RESULT* 🎲\n\n"
-    result_text += f"{game_data['emoji']} {game_data['name']}\n"
-    result_text += f"💰 Bet: Rp {result['bet']:,}\n"
-    result_text += f"🎯 Result: {result['type']}\n"
-    if result['win'] > 0:
-        result_text += f"🏆 Win: Rp {result['win']:,.0f}\n"
-    result_text += f"\n💵 Saldo Baru: Rp {user_data['balance']:,.0f}"
+    # Format hasil
+    result_text = format_spin_result(result, game_data, user_data['balance'])
     
+    # Keyboard setelah spin
     keyboard = [
         [InlineKeyboardButton("🔄 SPIN LAGI", callback_data=f"game_{game_key}")],
         [InlineKeyboardButton("🎰 GANTI GAME", callback_data='games')],
@@ -774,6 +771,7 @@ async def spin_handler(update: Update, context):
         parse_mode='Markdown'
     )
 
+# ========== WITHDRAW ==========
 async def withdraw_menu(update: Update, context):
     query = update.callback_query
     await query.answer()
@@ -862,6 +860,7 @@ async def handle_withdraw(update: Update, context):
     except ValueError:
         await update.message.reply_text("❌ Masukkan nominal yang benar!")
 
+# ========== STATUS ==========
 async def status_menu(update: Update, context):
     query = update.callback_query
     await query.answer()
@@ -871,12 +870,15 @@ async def status_menu(update: Update, context):
         await query.edit_message_text("❌ Anda belum login!")
         return
     
+    spin_count, streak_status = get_user_stats(update.effective_user.id)
+    
     status_text = f"📊 *STATUS*\n\n"
     status_text += f"👤 Username: {user_data['username']}\n"
     status_text += f"💰 Saldo: Rp {user_data['balance']:,.0f}\n"
     status_text += f"💵 Deposit: Rp {user_data['total_deposit']:,.0f}\n"
     status_text += f"🎲 Spin: {user_data['total_spin']}\n"
     status_text += f"🏆 Win: Rp {user_data['total_win']:,.0f}\n"
+    status_text += f"📊 Streak: {streak_status}\n"
     status_text += f"🔗 Kode: {user_data['referral_code']}\n"
     status_text += f"📅 Join: {user_data['joined']}\n"
     
@@ -888,6 +890,7 @@ async def status_menu(update: Update, context):
         parse_mode='Markdown'
     )
 
+# ========== BONUS ==========
 async def bonus_menu(update: Update, context):
     query = update.callback_query
     await query.answer()
@@ -955,6 +958,7 @@ async def bonus_referral(update: Update, context):
         parse_mode='Markdown'
     )
 
+# ========== HISTORY ==========
 async def history_menu(update: Update, context):
     query = update.callback_query
     await query.answer()
@@ -986,6 +990,191 @@ async def history_menu(update: Update, context):
         parse_mode='Markdown'
     )
 
+# ========== ADMIN HANDLERS ==========
+async def admin_approve_register(update: Update, context):
+    query = update.callback_query
+    data = query.data
+    telegram_id = data.replace('reg_approve_', '')
+    
+    if telegram_id not in pending_registrations:
+        await query.answer("Request tidak ditemukan!", show_alert=True)
+        return
+    
+    req = pending_registrations[telegram_id]
+    
+    users[telegram_id] = {
+        'telegram_id': int(telegram_id),
+        'username': req['username'],
+        'password': hash_password(req['password']),
+        'balance': 0,
+        'total_deposit': 0,
+        'total_withdraw': 0,
+        'total_spin': 0,
+        'total_win': 0,
+        'referral_code': generate_referral_code(),
+        'joined': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'last_bonus': None
+    }
+    
+    del pending_registrations[telegram_id]
+    save_data()
+    
+    await query.edit_message_text(
+        f"✅ *REGISTRASI APPROVED!*\n\n"
+        f"👤 Username: {req['username']}\n"
+        f"🆔 Telegram ID: {telegram_id}\n\n"
+        f"✅ Akun telah diaktifkan!",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        await context.bot.send_message(
+            chat_id=int(telegram_id),
+            text=f"✅ *AKUN ANDA TELAH DIAPPROVE!*\n\n"
+                 f"👤 Username: {req['username']}\n"
+                 f"🔑 Password: {req['password']}\n\n"
+                 f"Silakan LOGIN dengan perintah /start",
+            parse_mode='Markdown'
+        )
+    except:
+        pass
+
+async def admin_reject_register(update: Update, context):
+    query = update.callback_query
+    data = query.data
+    telegram_id = data.replace('reg_reject_', '')
+    
+    if telegram_id not in pending_registrations:
+        await query.answer("Request tidak ditemukan!", show_alert=True)
+        return
+    
+    req = pending_registrations[telegram_id]
+    del pending_registrations[telegram_id]
+    save_data()
+    
+    await query.edit_message_text(
+        f"❌ *REGISTRASI REJECTED!*\n\n"
+        f"👤 Username: {req['username']}\n"
+        f"🆔 Telegram ID: {telegram_id}\n\n"
+        f"❌ Registrasi ditolak!",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        await context.bot.send_message(
+            chat_id=int(telegram_id),
+            text=f"❌ *REGISTRASI DITOLAK!*\n\n"
+                 f"👤 Username: {req['username']}\n\n"
+                 f"⚠️ Pendaftaran Anda ditolak oleh admin.",
+            parse_mode='Markdown'
+        )
+    except:
+        pass
+
+async def admin_approve_deposit(update: Update, context):
+    query = update.callback_query
+    data = query.data
+    trx_id = data.replace('deposit_approve_', '')
+    
+    if trx_id not in pending_deposits:
+        await query.answer("Transaksi tidak ditemukan!", show_alert=True)
+        return
+    
+    pending = pending_deposits[trx_id]
+    if pending['status'] != 'pending':
+        await query.answer("Transaksi sudah diproses!", show_alert=True)
+        return
+    
+    user_id = pending['user_id']
+    amount = pending['amount']
+    method = pending['method']
+    username = pending['username']
+    
+    # Hitung bonus
+    bonus = 0
+    if amount >= 100000:
+        bonus = int(amount * 0.1)
+    elif amount >= 50000:
+        bonus = int(amount * 0.05)
+    total = amount + bonus
+    
+    add_balance(user_id, total, f"Deposit via {method.upper()}", is_deposit=True)
+    
+    pending['status'] = 'approved'
+    pending['approved_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    save_data()
+    
+    await query.edit_message_text(
+        f"✅ *DEPOSIT APPROVED!*\n\n"
+        f"👤 User: {username}\n"
+        f"💰 Nominal: Rp {amount:,.0f}\n"
+        f"🎁 Bonus: Rp {bonus:,.0f}\n"
+        f"💵 Total: Rp {total:,.0f}\n"
+        f"🆔 Trx ID: {trx_id}\n\n"
+        f"✅ Saldo telah ditambahkan!",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        user_data = get_user(user_id)
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"✅ *DEPOSIT BERHASIL!*\n\n"
+                 f"💰 Nominal: Rp {amount:,.0f}\n"
+                 f"🎁 Bonus: Rp {bonus:,.0f}\n"
+                 f"💵 Total: Rp {total:,.0f}\n"
+                 f"💳 Metode: {method.upper()}\n"
+                 f"💵 Saldo Baru: Rp {user_data['balance']:,.0f}\n\n"
+                 f"🎰 Ketik /start untuk mulai main!",
+            parse_mode='Markdown'
+        )
+    except:
+        pass
+
+async def admin_reject_deposit(update: Update, context):
+    query = update.callback_query
+    data = query.data
+    trx_id = data.replace('deposit_reject_', '')
+    
+    if trx_id not in pending_deposits:
+        await query.answer("Transaksi tidak ditemukan!", show_alert=True)
+        return
+    
+    pending = pending_deposits[trx_id]
+    if pending['status'] != 'pending':
+        await query.answer("Transaksi sudah diproses!", show_alert=True)
+        return
+    
+    user_id = pending['user_id']
+    username = pending['username']
+    amount = pending['amount']
+    
+    pending['status'] = 'rejected'
+    pending['rejected_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    save_data()
+    
+    await query.edit_message_text(
+        f"❌ *DEPOSIT REJECTED!*\n\n"
+        f"👤 User: {username}\n"
+        f"💰 Nominal: Rp {amount:,.0f}\n"
+        f"🆔 Trx ID: {trx_id}\n\n"
+        f"❌ Deposit ditolak!",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"❌ *DEPOSIT DITOLAK!*\n\n"
+                 f"💰 Nominal: Rp {amount:,.0f}\n"
+                 f"🆔 Trx ID: {trx_id}\n\n"
+                 f"⚠️ Silakan cek bukti transfer Anda dan ajukan deposit ulang.",
+            parse_mode='Markdown'
+        )
+    except:
+        pass
+
+# ========== BACK ==========
 async def back_main(update: Update, context):
     await start(update, context)
 
@@ -1014,7 +1203,7 @@ async def callback_handler(update: Update, context):
         await bonus_referral(update, context)
     elif data == 'history':
         await history_menu(update, context)
-    elif data.startswith('deposit_') and data not in ['deposit_approve', 'deposit_reject']:
+    elif data.startswith('deposit_') and 'approve' not in data and 'reject' not in data:
         await deposit_method(update, context)
     elif data.startswith('withdraw_'):
         await withdraw_form(update, context)
@@ -1054,7 +1243,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print("=" * 55)
-    print("🎰 JUDOL BOT - WITH ADMIN CONFIRMATION")
+    print("🎰 JUDOL BOT - FULL VERSION")
     print("🤖 Bot Started!")
     print("=" * 55)
     print("💳 PAYMENT ACTIVE:")
@@ -1064,6 +1253,12 @@ def main():
     print("📝 REGISTRATION & DEPOSIT:")
     print("Setiap registrasi dan deposit akan dikirim ke ADMIN")
     print(f"👑 ADMIN ID: {ADMIN_ID}")
+    print("=" * 55)
+    print("🎰 SLOT FEATURES:")
+    print("• Win di awal (Hot Streak)")
+    print("• Kalah di akhir (Cold Streak)")
+    print("• Nominal random (tidak bulat)")
+    print("• Foto kalo menang")
     print("=" * 55)
     
     application.run_polling()
